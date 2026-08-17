@@ -1,0 +1,233 @@
+<style>
+  #tabela-lotes {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+  }
+
+  #tabela-lotes thead th {
+    padding: 0.9rem 0.85rem;
+    border-bottom: 2px solid #dae5ec;
+    color: #587080;
+    background: #f6f9fb;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  #tabela-lotes tbody td {
+    padding: 0.9rem 0.85rem;
+    border-bottom: 1px solid #e6eef3;
+    vertical-align: middle;
+  }
+
+  #tabela-lotes tbody tr {
+    transition: background 150ms ease;
+  }
+
+  #tabela-lotes tbody tr:hover {
+    background: #f7fbfd;
+  }
+
+  #tabela-lotes tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .medication-name {
+    display: block;
+    color: #16334a;
+    font-weight: 800;
+  }
+
+  .medication-description {
+    display: block;
+    margin-top: 0.18rem;
+    color: #748895;
+    font-size: 0.7rem;
+  }
+
+  .lot-code {
+    display: inline-flex;
+    padding: 0.28rem 0.5rem;
+    border-radius: 7px;
+    color: #15558a;
+    background: #e9f3fa;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .warehouse-name {
+    color: #536d7c;
+  }
+
+  .expiration-date {
+    white-space: nowrap;
+  }
+
+  .stock-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 105px;
+    padding: 0.37rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.73rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .stock-status::before {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    content: "";
+  }
+
+  .stock-normal {
+    border: 1px solid #b9ded5;
+    color: #176a58;
+    background: #e7f7f2;
+  }
+
+  .stock-normal::before {
+    background: #208f7a;
+  }
+
+  .stock-low {
+    border: 1px solid #f2d2a1;
+    color: #995c0b;
+    background: #fff5e5;
+  }
+
+  .stock-low::before {
+    background: #d88614;
+  }
+
+  .stock-zero {
+    border: 1px solid #edb8b8;
+    color: #9b3535;
+    background: #fff0f0;
+  }
+
+  .stock-zero::before {
+    background: #ce4b4b;
+  }
+
+  .empty-stock {
+    padding: 3rem 1rem;
+    color: #677b89;
+    text-align: center;
+  }
+
+  .empty-stock-icon {
+    display: block;
+    margin-bottom: 0.75rem;
+    color: #15558a;
+    font-size: 2rem;
+  }
+
+  @media (max-width: 760px) {
+    #tabela-lotes {
+      min-width: 760px;
+    }
+  }
+</style>
+
+{% if lotes %}
+
+  <table id="tabela-lotes">
+
+    <thead>
+      <tr>
+        <th>Medicamento</th>
+        <th>Lote</th>
+        <th>Almoxarifado</th>
+        <th>Validade</th>
+        <th>Estoque</th>
+      </tr>
+    </thead>
+
+    <tbody>
+
+      {% for lote in lotes %}
+
+        <tr>
+
+          <td>
+            <span class="medication-name">
+              {{ lote.medicamento }}
+            </span>
+
+            <span class="medication-description">
+              Medicamento hospitalar
+            </span>
+          </td>
+
+          <td>
+            <span class="lot-code">
+              {{ lote.numero_lote }}
+            </span>
+          </td>
+
+          <td class="warehouse-name">
+            {{ lote.almoxarifado }}
+          </td>
+
+          <td class="expiration-date">
+            {{ lote.data_validade }}
+          </td>
+
+          <td>
+
+            {% if lote.quantidade == 0 %}
+
+              <span class="stock-status stock-zero">
+                Esgotado · 0
+              </span>
+
+            {% elif lote.quantidade <= 10 %}
+
+              <span class="stock-status stock-low">
+                Baixo · {{ lote.quantidade }}
+              </span>
+
+            {% else %}
+
+              <span class="stock-status stock-normal">
+                Disponível · {{ lote.quantidade }}
+              </span>
+
+            {% endif %}
+
+          </td>
+
+        </tr>
+
+      {% endfor %}
+
+    </tbody>
+  </table>
+
+{% else %}
+
+  <div class="empty-stock">
+
+    <span class="empty-stock-icon">
+      ▣
+    </span>
+
+    <strong>
+      Nenhum lote foi encontrado.
+    </strong>
+
+    <br>
+
+    Aguarde o carregamento ou o reabastecimento do estoque.
+
+  </div>
+
+{% endif %}

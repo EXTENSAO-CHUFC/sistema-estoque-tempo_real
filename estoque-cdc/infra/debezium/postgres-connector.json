@@ -1,0 +1,20 @@
+{
+  "name": "estoque-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "${file:/config/connector.env:OLTP_HOST}",
+    "database.port": "${file:/config/connector.env:OLTP_PORT}",
+    "database.user": "${file:/config/connector.env:OLTP_USER}",
+    "database.password": "${file:/config/connector.env:OLTP_PASSWORD}",
+    "database.dbname": "${file:/config/connector.env:OLTP_DATABASE}",
+    "topic.prefix": "estoque",
+    "schema.include.list": "public",
+    "table.include.list": "public.medicamentos,public.lotes,public.movimentacoes,public.fornecedores,public.almoxarifados,public.usuarios",
+    "slot.name": "estoque_debezium_slot",
+    "publication.name": "debezium_pub",
+    "publication.autocreate.mode": "disabled",
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false"
+  }
+}

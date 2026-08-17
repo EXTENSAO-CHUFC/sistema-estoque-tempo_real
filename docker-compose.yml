@@ -1,0 +1,250 @@
+# AVISO: Compose unificado da versão final LOCAL. Não depende da VM.
+version: "3.8"
+
+x-oltp-environment: &oltp-environment
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: estoque_banco
+  POSTGRES_USER: estoque_banco_user
+  POSTGRES_PASSWORD: estoque_banco_pwd
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_TOPIC_REABASTECIMENTO: reabastecimento
+  ENABLE_REPLENISHMENT_CONSUMER: "true"
+  KAFKA_RECONNECT_SECONDS: "5"
+
+x-cdc-environment: &cdc-environment
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_GROUP_ID: estoque-redis-dashboard-v1
+  CDC_TOPIC_PREFIX: estoque
+  REABASTECIMENTO_TOPIC: reabastecimento
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  ESTOQUE_MINIMO: "${ESTOQUE_MINIMO:-20}"
+  QUANTIDADE_REABASTECIMENTO: "${QUANTIDADE_REABASTECIMENTO:-100}"
+  REABASTECIMENTO_COOLDOWN_SEGUNDOS: "${REABASTECIMENTO_COOLDOWN_SEGUNDOS:-300}"
+  DASHBOARD_REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-2}"
+  MOVEMENT_HISTORY_LIMIT: "${MOVEMENT_HISTORY_LIMIT:-500}"
+  PYTHONPATH: /app
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: estoque-final-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: estoque_banco
+      POSTGRES_USER: estoque_banco_user
+      POSTGRES_PASSWORD: estoque_banco_pwd
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./banco-oltp/infra/postgres/config/init-pg-hba.sh:/docker-entrypoint-initdb.d/00-pg-hba.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estoque_banco_user -d estoque_banco"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: estoque-final-kafka
+    user: root
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_EXTERNAL_PORT:-19090}:19090"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19090,CONTROLLER://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_EXTERNAL_PORT:-19090}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+      KAFKA_CLUSTER_ID: c1efea27-733e-4c6a-94c0-67e69f5adfea
+      CLUSTER_ID: c1efea27-733e-4c6a-94c0-67e69f5adfea
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  connect:
+    image: quay.io/debezium/connect:3.0
+    container_name: estoque-final-connect
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - postgres
+    ports:
+      - "${CONNECT_EXTERNAL_PORT:-8083}:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: estoque-connect
+      CONFIG_STORAGE_TOPIC: estoque_connect_configs
+      OFFSET_STORAGE_TOPIC: estoque_connect_offsets
+      STATUS_STORAGE_TOPIC: estoque_connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: estoque-final-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  oltp-bootstrap:
+    build:
+      context: ./banco-oltp
+    container_name: estoque-final-oltp-bootstrap
+    depends_on:
+      - postgres
+    environment:
+      <<: *oltp-environment
+    command: ["python", "-m", "scripts.bootstrap_database"]
+    restart: on-failure
+
+  web:
+    build:
+      context: ./banco-oltp
+    container_name: estoque-final-web
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - oltp-bootstrap
+    environment:
+      <<: *oltp-environment
+    command:
+      - sh
+      - -c
+      - python -m scripts.wait_database && exec uvicorn app.web.app_web:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${WEB_EXTERNAL_PORT:-8000}:8000"
+
+  simulador-saidas:
+    build:
+      context: ./banco-oltp
+    container_name: estoque-final-simulador-saidas
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - oltp-bootstrap
+    environment:
+      <<: *oltp-environment
+      SIMULATION_INTERVAL_SECONDS: "${SIMULATION_INTERVAL_SECONDS:-15}"
+    command:
+      - sh
+      - -c
+      - python -m scripts.wait_database && exec python -m scripts.simular_saidas
+
+  consumer-reabastecimento:
+    build:
+      context: ./banco-oltp
+    container_name: estoque-final-consumer-reabastecimento
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - kafka
+      - oltp-bootstrap
+    environment:
+      <<: *oltp-environment
+    command:
+      - sh
+      - -c
+      - python -m scripts.wait_database && exec python -m app.consumers.reabastecimento_consumer
+
+  register-connector:
+    build:
+      context: ./estoque-cdc
+    container_name: estoque-final-register-connector
+    depends_on:
+      - connect
+      - postgres
+      - oltp-bootstrap
+    environment:
+      KAFKA_CONNECT_URL: http://connect:8083
+      OLTP_HOST: postgres
+      OLTP_PORT: "5432"
+      OLTP_DATABASE: estoque_banco
+      OLTP_USER: debezium_replicator
+      OLTP_PASSWORD: debezium_password
+    command: ["python", "-m", "scripts.register_connector"]
+    restart: on-failure
+
+  consumer-cdc:
+    build:
+      context: ./estoque-cdc
+    container_name: estoque-final-consumer-cdc
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - redis
+      - connect
+      - register-connector
+    environment:
+      <<: *cdc-environment
+    command: ["python", "-m", "app.consumers.analytics_consumer"]
+
+  dashboard:
+    build:
+      context: ./estoque-cdc
+    container_name: estoque-final-dashboard
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - consumer-cdc
+    environment:
+      <<: *cdc-environment
+    command:
+      - streamlit
+      - run
+      - app/dashboard/dashboard.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+    ports:
+      - "${DASHBOARD_EXTERNAL_PORT:-8501}:8501"
+
+volumes:
+  postgres_data:
+  kafka_data:
+  redis_data:
