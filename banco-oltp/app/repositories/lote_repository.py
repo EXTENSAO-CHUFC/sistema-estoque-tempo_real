@@ -7,7 +7,16 @@ class LoteRepository:
         self.session = session
 
     def listar_detalhados(self) -> list[Lote]:
-        stmt = select(Lote).options(joinedload(Lote.medicamento), joinedload(Lote.almoxarifado)).order_by(Lote.medicamento_id, Lote.numero_lote)
+        stmt = (
+            select(Lote)
+            .options(joinedload(Lote.medicamento), joinedload(Lote.almoxarifado))
+            .order_by(
+                Lote.quantidade.desc(),
+                Lote.medicamento_id.asc(),
+                Lote.data_validade.asc(),
+                Lote.numero_lote.asc(),
+            )
+        )
         return list(self.session.scalars(stmt).all())
 
     def buscar_para_atualizacao(self, lote_id: int) -> Lote | None:

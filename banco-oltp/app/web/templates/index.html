@@ -581,13 +581,22 @@
 
         </section>
 
-        <footer class="content-footer">
-          Hospital Universitário Walter Cantídio ·
-          Sistema acadêmico de controle de estoque de medicamentos
-        </footer>
-
       </main>
     </div>
   </div>
+
+  <script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+      if (evt.detail.target && evt.detail.target.id === 'tabela-lotes-container') {
+        const select = document.getElementById('select-ordenacao');
+        if (select && window.aplicarOrdenacaoSelect) {
+          window.aplicarOrdenacaoSelect(select.value || 'qtd-desc');
+        }
+        if (window.filtrarLotesTabela) {
+          window.filtrarLotesTabela();
+        }
+      }
+    });
+  </script>
 </body>
 </html>

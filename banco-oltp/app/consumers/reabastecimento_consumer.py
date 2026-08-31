@@ -98,8 +98,12 @@ def _confirmar_mensagem(consumer: KafkaConsumer, message: Any) -> None:
     topic_partition = TopicPartition(message.topic, message.partition)
     consumer.commit(
         offsets={
-            topic_partition: OffsetAndMetadata(message.offset + 1, "")
+            topic_partition: OffsetAndMetadata(message.offset + 1,
+                "",
+                getattr(message, "leader_epoch", None),
+            )
         }
+
     )
 
 
